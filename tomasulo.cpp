@@ -253,6 +253,41 @@ int main(int argc, char *argv[]) {
         }
       }
     }
+
+    // writeback
+    // for each exec unit that has cycles_left = 0
+    for (int i = 0; i < exec_units.size(); i++) {
+      if (exec_units[i].busy) {
+        exec_units[i].cycles_left -= 1;
+        if (exec_units[i].cycles_left == 0) {
+          exec_units[i].busy = false;
+          res_stations[exec_units[i].rs_index].busy = false;
+
+          // write to reg file
+          int rd = exec_units[i].rd;
+          if (reg_status[rd] == exec_units[i].rs_index && reg_status_busy[rd]) {
+            reg_status_busy[rd] = false;
+            reg_status[rd] = 0;
+            reg_file[rd] = exec_units[i].res;
+          }
+
+          // common data bus, write to res stations
+          for (int j = 0; j < res_stations.size(); j++) {
+            if (res_stations[j].busy && !res_stations[j].ready_1 &&
+                res_stations[j].rs_index_1 == exec_units[i].rs_index) {
+              res_stations[j].ready_1 = true;
+              res_stations[j].value_1 = exec_units[i].res;
+            }
+
+            if (res_stations[j].busy && !res_stations[j].ready_2 &&
+                res_stations[j].rs_index_2 == exec_units[i].rs_index) {
+              res_stations[j].ready_2 = true;
+              res_stations[j].value_2 = exec_units[i].res;
+            }
+          }
+        }
+      }
+    }
   }
   return 0;
 }
