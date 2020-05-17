@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
 
   // simulation without tomasulo
   size_t pc = 0;
-  int32_t reg[32];
+  int32_t reg[32] = {0};
   int cycle = 0;
   while (pc < instructions.size()) {
     cycle += 1;
