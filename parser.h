@@ -13,9 +13,9 @@ struct Inst {
   // source
   int rs1;
   int rs2;
-  uint32_t imm;
+  int32_t imm;
   // jump offset
-  uint32_t offset;
+  int32_t offset;
 };
 
 Inst parse_inst(const char *line);

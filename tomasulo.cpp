@@ -19,17 +19,17 @@ struct ResStation {
   // dest register
   int rd;
   // jump offset
-  uint32_t offset;
+  int32_t offset;
 
   // value of r1, vj
-  uint32_t value_1;
+  int32_t value_1;
   // dependency of r1, qj
   int rs_index_1;
   // r1 is ready, qj == NULL
   bool ready_1;
 
   // value of r2, vk
-  uint32_t value_2;
+  int32_t value_2;
   // dependency of r2, qk
   int rs_index_2;
   // r2 is ready, qk == NULL
@@ -51,13 +51,13 @@ struct ExecUnit {
   // register destination
   int rd;
   // jump offset
-  uint32_t offset;
+  int32_t offset;
   // value of r1
-  uint32_t value_1;
+  int32_t value_1;
   // value of r2
-  uint32_t value_2;
+  int32_t value_2;
   // result value
-  uint32_t res;
+  int32_t res;
 };
 
 // info when instruction first executes
@@ -148,10 +148,10 @@ int main(int argc, char *argv[]) {
   add_exec_unit(2, ResStationType::LoadBuffer);
 
   // reg file and reg status
-  uint32_t reg_file[32] = {0};
+  int32_t reg_file[32] = {0};
   int reg_status[32] = {0};
   bool reg_status_busy[32] = {false};
-  uint32_t pc = 0;
+  int pc = 0;
   bool issue_stall = false;
 
   // main loop
