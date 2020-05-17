@@ -10,6 +10,7 @@ enum ResStationType { AddSub, MulDiv, LoadBuffer };
 struct ResStation {
   ResStationType type;
   bool busy;
+  bool executing;
   InstType op;
   // dest register
   int rd;
@@ -29,7 +30,26 @@ struct ResStation {
   bool ready_2;
 };
 
+struct ExecUnit {
+  ResStationType type;
+  InstType op;
+  bool busy;
+  // cycles left
+  int cycles_left;
+  // where the inst comes from
+  int rs_index;
+  // register destinaiton
+  int rd;
+  // value of r1
+  uint32_t value_1;
+  // value of r2
+  uint32_t value_2;
+  // result value
+  uint32_t res;
+};
+
 vector<ResStation> res_stations;
+vector<ExecUnit> exec_units;
 
 void add_rs(int count, ResStationType type) {
   ResStation station;
@@ -37,6 +57,15 @@ void add_rs(int count, ResStationType type) {
   station.type = type;
   for (int i = 0; i < count; i++) {
     res_stations.push_back(station);
+  }
+}
+
+void add_exec_unit(int count, ResStationType type) {
+  ExecUnit exec_unit;
+  exec_unit.busy = false;
+  exec_unit.type = type;
+  for (int i = 0; i < count; i++) {
+    exec_units.push_back(exec_unit);
   }
 }
 
@@ -73,6 +102,10 @@ int main(int argc, char *argv[]) {
   add_rs(6, ResStationType::AddSub);
   add_rs(3, ResStationType::MulDiv);
   add_rs(3, ResStationType::LoadBuffer);
+  // three addsub, two muldiv, two load buffer
+  add_exec_unit(3, ResStationType::AddSub);
+  add_exec_unit(2, ResStationType::MulDiv);
+  add_exec_unit(2, ResStationType::LoadBuffer);
 
   // reg file and reg status
   uint32_t reg_file[32] = {0};
@@ -82,7 +115,7 @@ int main(int argc, char *argv[]) {
 
   // main loop
   while (true) {
-    // dispatch
+    // issue
     if (pc < instructions.size()) {
       struct Inst inst = instructions[pc];
       ResStationType type;
@@ -135,6 +168,8 @@ int main(int argc, char *argv[]) {
             }
 
             res_stations[i].rd = inst.rd;
+            res_stations[i].busy = true;
+            res_stations[i].executing = false;
 
             // update reg status
             reg_status[inst.rd] = i;
@@ -146,6 +181,8 @@ int main(int argc, char *argv[]) {
             res_stations[i].ready_1 = true;
             res_stations[i].ready_2 = true;
             res_stations[i].rd = inst.rd;
+            res_stations[i].busy = true;
+            res_stations[i].executing = false;
 
             // update reg status
             reg_status[inst.rd] = i;
@@ -158,6 +195,61 @@ int main(int argc, char *argv[]) {
 
           pc += 1;
           break;
+        }
+      }
+    }
+
+    // execute
+    // for each empty exec unit, find a ready instruction
+    for (int i = 0; i < exec_units.size(); i++) {
+      if (!exec_units[i].busy) {
+        for (int j = 0; j < res_stations.size(); j++) {
+          // non busy && non executing && all operands are ready
+          if (exec_units[i].type == res_stations[j].type &&
+              res_stations[j].busy && !res_stations[j].executing &&
+              res_stations[j].ready_1 && res_stations[j].ready_2) {
+            res_stations[j].executing = true;
+            exec_units[i].busy = true;
+
+            exec_units[i].rs_index = j;
+            exec_units[i].value_1 = res_stations[j].value_1;
+            exec_units[i].value_2 = res_stations[j].value_2;
+            exec_units[i].rd = res_stations[j].rd;
+            exec_units[i].op = res_stations[j].op;
+
+            switch (exec_units[i].op) {
+            case InstType::Add:
+              exec_units[i].res = exec_units[i].value_1 + exec_units[i].value_2;
+              exec_units[i].cycles_left = 3;
+              break;
+            case InstType::Sub:
+              exec_units[i].res = exec_units[i].value_1 - exec_units[i].value_2;
+              exec_units[i].cycles_left = 3;
+              break;
+            case InstType::Mul:
+              exec_units[i].res = exec_units[i].value_1 * exec_units[i].value_2;
+              exec_units[i].cycles_left = 4;
+              break;
+            case InstType::Div:
+              if (exec_units[i].value_2 == 0) {
+                // div 0
+                exec_units[i].res = exec_units[i].value_1;
+                exec_units[i].cycles_left = 1;
+              } else {
+                exec_units[i].res =
+                    exec_units[i].value_1 / exec_units[i].value_2;
+                exec_units[i].cycles_left = 4;
+              }
+              break;
+            case InstType::Load:
+              exec_units[i].res = exec_units[i].value_1;
+              exec_units[i].cycles_left = 3;
+              break;
+            default:
+              assert(false);
+              break;
+            }
+          }
         }
       }
     }
