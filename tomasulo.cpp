@@ -7,8 +7,10 @@ using namespace std;
 
 enum ResStationType { AddSub, MulDiv, LoadBuffer };
 
+// reservation stations
 struct ResStation {
   ResStationType type;
+  int pc;
   bool busy;
   bool executing;
   InstType op;
@@ -34,8 +36,10 @@ struct ResStation {
   bool ready_2;
 };
 
+// execution units
 struct ExecUnit {
   ResStationType type;
+  int pc;
   InstType op;
   bool busy;
   // cycles left
@@ -56,8 +60,16 @@ struct ExecUnit {
   uint32_t res;
 };
 
+// info when instruction first executes
+struct InstInfo {
+  int issue;
+  int exec_complete;
+  int write_res;
+};
+
 vector<ResStation> res_stations;
 vector<ExecUnit> exec_units;
+vector<InstInfo> inst_infos;
 
 void add_rs(int count, ResStationType type) {
   ResStation station;
@@ -105,6 +117,7 @@ int main(int argc, char *argv[]) {
     instructions.push_back(parse_inst(buffer));
   }
   printf("Parsed %ld instructions\n", instructions.size());
+  inst_infos.resize(instructions.size());
 
   // six addsub, three muldiv, three load buffer
   add_rs(6, ResStationType::AddSub);
@@ -151,6 +164,11 @@ int main(int argc, char *argv[]) {
           if (exec_units[i].op == InstType::Jump) {
             issue_stall = false;
             pc += exec_units[i].res;
+          }
+
+          if (inst_infos[exec_units[i].pc].exec_complete == 0) {
+            inst_infos[exec_units[i].pc].exec_complete = cycle - 1;
+            inst_infos[exec_units[i].pc].write_res = cycle;
           }
 
           if (exec_units[i].wrd) {
@@ -269,6 +287,7 @@ int main(int argc, char *argv[]) {
 
           res_stations[i].wrd = (inst.type != InstType::Jump);
           res_stations[i].rd = inst.rd;
+          res_stations[i].pc = pc;
           res_stations[i].offset = inst.offset;
           res_stations[i].busy = true;
           res_stations[i].executing = false;
@@ -277,6 +296,10 @@ int main(int argc, char *argv[]) {
           if (res_stations[i].wrd) {
             reg_status[inst.rd] = i;
             reg_status_busy[inst.rd] = true;
+          }
+
+          if (inst_infos[pc].issue == 0) {
+            inst_infos[pc].issue = cycle;
           }
 
           pc += 1;
@@ -304,6 +327,7 @@ int main(int argc, char *argv[]) {
             exec_units[i].value_2 = res_stations[j].value_2;
             exec_units[i].rd = res_stations[j].rd;
             exec_units[i].wrd = res_stations[j].wrd;
+            exec_units[i].pc = res_stations[j].pc;
             exec_units[i].op = res_stations[j].op;
 
             switch (exec_units[i].op) {
@@ -483,5 +507,11 @@ int main(int argc, char *argv[]) {
 
     cycle++;
   }
+
+  for (int i = 0; i < instructions.size(); i++) {
+    fprintf(output_file, "%d,%d,%d\n", inst_infos[i].issue,
+            inst_infos[i].exec_complete, inst_infos[i].write_res);
+  }
+
   return 0;
 }
