@@ -5,7 +5,10 @@ all: $(patsubst %.nel,%.log,$(wildcard *.nel))
 
 diff: $(patsubst %.nel,%.diff,$(wildcard *.nel))
 
-%.log %.reg: %.nel $(TOMASULO)
+%.log: %.nel $(TOMASULO)
+	$(TOMASULO) $< $(patsubst %.nel,%.log,$<)
+
+%.reg: %.nel $(TOMASULO)
 	$(TOMASULO) $< $(patsubst %.nel,%.log,$<) $(patsubst %.nel,%.trace,$<) $(patsubst %.nel,%.reg,$<)
 
 %.sim_reg %.sim_trace: %.reg $(SIMULATOR)
