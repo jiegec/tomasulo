@@ -12,8 +12,12 @@ struct ResStation {
   bool busy;
   bool executing;
   InstType op;
+  // writes to register destination
+  bool wrd;
   // dest register
   int rd;
+  // jump offset
+  uint32_t offset;
 
   // value of r1, vj
   uint32_t value_1;
@@ -38,8 +42,12 @@ struct ExecUnit {
   int cycles_left;
   // where the inst comes from
   int rs_index;
-  // register destinaiton
+  // writes to register destination
+  bool wrd;
+  // register destination
   int rd;
+  // jump offset
+  uint32_t offset;
   // value of r1
   uint32_t value_1;
   // value of r2
@@ -112,6 +120,7 @@ int main(int argc, char *argv[]) {
   int reg_status[32] = {0};
   bool reg_status_busy[32] = {false};
   uint32_t pc = 0;
+  bool issue_stall = false;
 
   // main loop
   int cycle = 1;
@@ -132,12 +141,13 @@ int main(int argc, char *argv[]) {
     }
 
     // issue
-    if (pc < instructions.size()) {
+    if (pc < instructions.size() && !issue_stall) {
       struct Inst inst = instructions[pc];
       ResStationType type;
       switch (inst.type) {
       case InstType::Add:
       case InstType::Sub:
+      case InstType::Jump:
         type = ResStationType::AddSub;
         break;
       case InstType::Mul:
@@ -183,30 +193,46 @@ int main(int argc, char *argv[]) {
               res_stations[i].value_2 = reg_file[inst.rs2];
             }
 
-            res_stations[i].rd = inst.rd;
-            res_stations[i].busy = true;
-            res_stations[i].executing = false;
+            break;
+          case InstType::Jump:
+            // one source register, one imm
+            if (reg_status_busy[inst.rs1]) {
+              // not ready
+              res_stations[i].ready_1 = false;
+              res_stations[i].rs_index_1 = reg_status[inst.rs1];
+            } else {
+              // ready
+              res_stations[i].ready_1 = true;
+              res_stations[i].value_1 = reg_file[inst.rs1];
+            }
 
-            // update reg status
-            reg_status[inst.rd] = i;
-            reg_status_busy[inst.rd] = true;
+            res_stations[i].value_2 = inst.imm;
+            res_stations[i].ready_2 = true;
+
+            // stall issue stage
+            issue_stall = true;
             break;
           case InstType::Load:
             // only imm, no source register
             res_stations[i].value_1 = inst.imm;
             res_stations[i].ready_1 = true;
             res_stations[i].ready_2 = true;
-            res_stations[i].rd = inst.rd;
-            res_stations[i].busy = true;
-            res_stations[i].executing = false;
-
-            // update reg status
-            reg_status[inst.rd] = i;
-            reg_status_busy[inst.rd] = true;
             break;
           default:
             assert(false);
             break;
+          }
+
+          res_stations[i].wrd = (inst.type != InstType::Jump);
+          res_stations[i].rd = inst.rd;
+          res_stations[i].offset = inst.offset;
+          res_stations[i].busy = true;
+          res_stations[i].executing = false;
+
+          // update reg status
+          if (res_stations[i].wrd) {
+            reg_status[inst.rd] = i;
+            reg_status_busy[inst.rd] = true;
           }
 
           pc += 1;
@@ -223,26 +249,34 @@ int main(int argc, char *argv[]) {
           exec_units[i].busy = false;
           res_stations[exec_units[i].rs_index].busy = false;
 
-          // write to reg file
-          int rd = exec_units[i].rd;
-          if (reg_status[rd] == exec_units[i].rs_index && reg_status_busy[rd]) {
-            reg_status_busy[rd] = false;
-            reg_status[rd] = 0;
-            reg_file[rd] = exec_units[i].res;
+          if (exec_units[i].op == InstType::Jump) {
+            issue_stall = false;
+            pc += exec_units[i].res;
           }
 
-          // common data bus, write to res stations
-          for (int j = 0; j < res_stations.size(); j++) {
-            if (res_stations[j].busy && !res_stations[j].ready_1 &&
-                res_stations[j].rs_index_1 == exec_units[i].rs_index) {
-              res_stations[j].ready_1 = true;
-              res_stations[j].value_1 = exec_units[i].res;
+          if (exec_units[i].wrd) {
+            // write to reg file
+            int rd = exec_units[i].rd;
+            if (reg_status[rd] == exec_units[i].rs_index &&
+                reg_status_busy[rd]) {
+              reg_status_busy[rd] = false;
+              reg_status[rd] = 0;
+              reg_file[rd] = exec_units[i].res;
             }
 
-            if (res_stations[j].busy && !res_stations[j].ready_2 &&
-                res_stations[j].rs_index_2 == exec_units[i].rs_index) {
-              res_stations[j].ready_2 = true;
-              res_stations[j].value_2 = exec_units[i].res;
+            // common data bus, write to res stations
+            for (int j = 0; j < res_stations.size(); j++) {
+              if (res_stations[j].busy && !res_stations[j].ready_1 &&
+                  res_stations[j].rs_index_1 == exec_units[i].rs_index) {
+                res_stations[j].ready_1 = true;
+                res_stations[j].value_1 = exec_units[i].res;
+              }
+
+              if (res_stations[j].busy && !res_stations[j].ready_2 &&
+                  res_stations[j].rs_index_2 == exec_units[i].rs_index) {
+                res_stations[j].ready_2 = true;
+                res_stations[j].value_2 = exec_units[i].res;
+              }
             }
           }
         } else {
@@ -265,6 +299,7 @@ int main(int argc, char *argv[]) {
             exec_units[i].busy = true;
 
             exec_units[i].rs_index = j;
+            exec_units[i].offset = res_stations[j].offset;
             exec_units[i].value_1 = res_stations[j].value_1;
             exec_units[i].value_2 = res_stations[j].value_2;
             exec_units[i].rd = res_stations[j].rd;
@@ -282,6 +317,16 @@ int main(int argc, char *argv[]) {
             case InstType::Mul:
               exec_units[i].res = exec_units[i].value_1 * exec_units[i].value_2;
               exec_units[i].cycles_left = 4;
+            case InstType::Jump:
+              // res = pc offset
+              if (exec_units[i].value_1 == exec_units[i].value_2) {
+                // reg == imm, jump
+                exec_units[i].res = exec_units[i].offset;
+              } else {
+                // don't jump
+                exec_units[i].res = 1;
+              }
+              exec_units[i].cycles_left = 1;
               break;
             case InstType::Div:
               if (exec_units[i].value_2 == 0) {
