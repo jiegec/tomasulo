@@ -114,7 +114,23 @@ int main(int argc, char *argv[]) {
   uint32_t pc = 0;
 
   // main loop
+  int cycle = 1;
   while (true) {
+    // end condition
+    if (pc >= instructions.size()) {
+      bool quit = true;
+      for (int i = 0; i < res_stations.size(); i++) {
+        if (res_stations[i].busy) {
+          quit = false;
+          break;
+        }
+      }
+
+      if (quit) {
+        break;
+      }
+    }
+
     // issue
     if (pc < instructions.size()) {
       struct Inst inst = instructions[pc];
@@ -199,6 +215,42 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    // writeback
+    // for each exec unit that has cycles_left = 0
+    for (int i = 0; i < exec_units.size(); i++) {
+      if (exec_units[i].busy) {
+        if (exec_units[i].cycles_left == 0) {
+          exec_units[i].busy = false;
+          res_stations[exec_units[i].rs_index].busy = false;
+
+          // write to reg file
+          int rd = exec_units[i].rd;
+          if (reg_status[rd] == exec_units[i].rs_index && reg_status_busy[rd]) {
+            reg_status_busy[rd] = false;
+            reg_status[rd] = 0;
+            reg_file[rd] = exec_units[i].res;
+          }
+
+          // common data bus, write to res stations
+          for (int j = 0; j < res_stations.size(); j++) {
+            if (res_stations[j].busy && !res_stations[j].ready_1 &&
+                res_stations[j].rs_index_1 == exec_units[i].rs_index) {
+              res_stations[j].ready_1 = true;
+              res_stations[j].value_1 = exec_units[i].res;
+            }
+
+            if (res_stations[j].busy && !res_stations[j].ready_2 &&
+                res_stations[j].rs_index_2 == exec_units[i].rs_index) {
+              res_stations[j].ready_2 = true;
+              res_stations[j].value_2 = exec_units[i].res;
+            }
+          }
+        } else {
+          exec_units[i].cycles_left -= 1;
+        }
+      }
+    }
+
     // execute
     // for each empty exec unit, find a ready instruction
     for (int i = 0; i < exec_units.size(); i++) {
@@ -206,8 +258,9 @@ int main(int argc, char *argv[]) {
         for (int j = 0; j < res_stations.size(); j++) {
           // non busy && non executing && all operands are ready
           if (exec_units[i].type == res_stations[j].type &&
-              res_stations[j].busy && !res_stations[j].executing &&
-              res_stations[j].ready_1 && res_stations[j].ready_2) {
+              !exec_units[i].busy && res_stations[j].busy &&
+              !res_stations[j].executing && res_stations[j].ready_1 &&
+              res_stations[j].ready_2) {
             res_stations[j].executing = true;
             exec_units[i].busy = true;
 
@@ -254,40 +307,84 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // writeback
-    // for each exec unit that has cycles_left = 0
-    for (int i = 0; i < exec_units.size(); i++) {
-      if (exec_units[i].busy) {
-        exec_units[i].cycles_left -= 1;
-        if (exec_units[i].cycles_left == 0) {
-          exec_units[i].busy = false;
-          res_stations[exec_units[i].rs_index].busy = false;
+    printf("Cycle: %d\n", cycle);
+    printf("Reservation Stations:\n");
+    for (int i = 0; i < res_stations.size(); i++) {
+      if (res_stations[i].busy) {
+        switch (res_stations[i].type) {
+        case ResStationType::AddSub:
+          printf("Ars %d:", i);
+          break;
+        case ResStationType::MulDiv:
+          printf("Mrs %d:", i);
+          break;
+        case ResStationType::LoadBuffer:
+          printf("LB %d:", i);
+          break;
+        default:
+          assert(false);
+          break;
+        }
 
-          // write to reg file
-          int rd = exec_units[i].rd;
-          if (reg_status[rd] == exec_units[i].rs_index && reg_status_busy[rd]) {
-            reg_status_busy[rd] = false;
-            reg_status[rd] = 0;
-            reg_file[rd] = exec_units[i].res;
-          }
+        if (res_stations[i].ready_1) {
+          printf(" vj=%08x", res_stations[i].value_1);
+        } else {
+          printf(" qj=%08x", res_stations[i].rs_index_1);
+        }
 
-          // common data bus, write to res stations
-          for (int j = 0; j < res_stations.size(); j++) {
-            if (res_stations[j].busy && !res_stations[j].ready_1 &&
-                res_stations[j].rs_index_1 == exec_units[i].rs_index) {
-              res_stations[j].ready_1 = true;
-              res_stations[j].value_1 = exec_units[i].res;
-            }
-
-            if (res_stations[j].busy && !res_stations[j].ready_2 &&
-                res_stations[j].rs_index_2 == exec_units[i].rs_index) {
-              res_stations[j].ready_2 = true;
-              res_stations[j].value_2 = exec_units[i].res;
-            }
+        if (res_stations[i].type != ResStationType::LoadBuffer) {
+          if (res_stations[i].ready_2) {
+            printf(" vk=%08x", res_stations[i].value_2);
+          } else {
+            printf(" qk=%08x", res_stations[i].rs_index_2);
           }
         }
+
+        printf("\n");
       }
     }
+
+    printf("Execution Unit:\n");
+    for (int i = 0; i < exec_units.size(); i++) {
+      if (exec_units[i].busy) {
+        switch (exec_units[i].type) {
+        case ResStationType::AddSub:
+          printf("Add %d:", i);
+          break;
+        case ResStationType::MulDiv:
+          printf("Mult %d:", i);
+          break;
+        case ResStationType::LoadBuffer:
+          printf("Load %d:", i);
+          break;
+        default:
+          assert(false);
+          break;
+        }
+
+        printf(" rd=%02d", exec_units[i].rd);
+        printf(" vj=%08x", exec_units[i].value_1);
+
+        if (exec_units[i].type != ResStationType::LoadBuffer) {
+          printf(" vk=%08x", exec_units[i].value_1);
+        }
+        printf(" cycles=%d", exec_units[i].cycles_left);
+
+        printf("\n");
+      }
+    }
+
+    printf("Register Status:\n");
+    for (int i = 0; i < 32; i++) {
+      if (reg_status_busy[i]) {
+        printf("R[%02d]=%d ", i, reg_status[i]);
+      }
+    }
+    printf("\n");
+
+    printf("\n");
+
+    cycle++;
   }
   return 0;
 }
