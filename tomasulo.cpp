@@ -140,6 +140,50 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    // writeback
+    // for each exec unit that has cycles_left = 0
+    for (int i = 0; i < exec_units.size(); i++) {
+      if (exec_units[i].busy) {
+        if (exec_units[i].cycles_left == 0) {
+          exec_units[i].busy = false;
+          res_stations[exec_units[i].rs_index].busy = false;
+
+          if (exec_units[i].op == InstType::Jump) {
+            issue_stall = false;
+            pc += exec_units[i].res;
+          }
+
+          if (exec_units[i].wrd) {
+            // write to reg file
+            int rd = exec_units[i].rd;
+            if (reg_status[rd] == exec_units[i].rs_index &&
+                reg_status_busy[rd]) {
+              reg_status_busy[rd] = false;
+              reg_status[rd] = 0;
+              reg_file[rd] = exec_units[i].res;
+            }
+
+            // common data bus, write to res stations
+            for (int j = 0; j < res_stations.size(); j++) {
+              if (res_stations[j].busy && !res_stations[j].ready_1 &&
+                  res_stations[j].rs_index_1 == exec_units[i].rs_index) {
+                res_stations[j].ready_1 = true;
+                res_stations[j].value_1 = exec_units[i].res;
+              }
+
+              if (res_stations[j].busy && !res_stations[j].ready_2 &&
+                  res_stations[j].rs_index_2 == exec_units[i].rs_index) {
+                res_stations[j].ready_2 = true;
+                res_stations[j].value_2 = exec_units[i].res;
+              }
+            }
+          }
+        } else {
+          exec_units[i].cycles_left -= 1;
+        }
+      }
+    }
+
     // issue
     if (pc < instructions.size() && !issue_stall) {
       struct Inst inst = instructions[pc];
@@ -241,50 +285,6 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // writeback
-    // for each exec unit that has cycles_left = 0
-    for (int i = 0; i < exec_units.size(); i++) {
-      if (exec_units[i].busy) {
-        if (exec_units[i].cycles_left == 0) {
-          exec_units[i].busy = false;
-          res_stations[exec_units[i].rs_index].busy = false;
-
-          if (exec_units[i].op == InstType::Jump) {
-            issue_stall = false;
-            pc += exec_units[i].res;
-          }
-
-          if (exec_units[i].wrd) {
-            // write to reg file
-            int rd = exec_units[i].rd;
-            if (reg_status[rd] == exec_units[i].rs_index &&
-                reg_status_busy[rd]) {
-              reg_status_busy[rd] = false;
-              reg_status[rd] = 0;
-              reg_file[rd] = exec_units[i].res;
-            }
-
-            // common data bus, write to res stations
-            for (int j = 0; j < res_stations.size(); j++) {
-              if (res_stations[j].busy && !res_stations[j].ready_1 &&
-                  res_stations[j].rs_index_1 == exec_units[i].rs_index) {
-                res_stations[j].ready_1 = true;
-                res_stations[j].value_1 = exec_units[i].res;
-              }
-
-              if (res_stations[j].busy && !res_stations[j].ready_2 &&
-                  res_stations[j].rs_index_2 == exec_units[i].rs_index) {
-                res_stations[j].ready_2 = true;
-                res_stations[j].value_2 = exec_units[i].res;
-              }
-            }
-          }
-        } else {
-          exec_units[i].cycles_left -= 1;
-        }
-      }
-    }
-
     // execute
     // for each empty exec unit, find a ready instruction
     for (int i = 0; i < exec_units.size(); i++) {
@@ -303,6 +303,7 @@ int main(int argc, char *argv[]) {
             exec_units[i].value_1 = res_stations[j].value_1;
             exec_units[i].value_2 = res_stations[j].value_2;
             exec_units[i].rd = res_stations[j].rd;
+            exec_units[i].wrd = res_stations[j].wrd;
             exec_units[i].op = res_stations[j].op;
 
             switch (exec_units[i].op) {
@@ -317,14 +318,15 @@ int main(int argc, char *argv[]) {
             case InstType::Mul:
               exec_units[i].res = exec_units[i].value_1 * exec_units[i].value_2;
               exec_units[i].cycles_left = 4;
+              break;
             case InstType::Jump:
               // res = pc offset
               if (exec_units[i].value_1 == exec_units[i].value_2) {
                 // reg == imm, jump
-                exec_units[i].res = exec_units[i].offset;
+                exec_units[i].res = exec_units[i].offset - 1;
               } else {
                 // don't jump
-                exec_units[i].res = 1;
+                exec_units[i].res = 0;
               }
               exec_units[i].cycles_left = 1;
               break;
@@ -371,6 +373,30 @@ int main(int argc, char *argv[]) {
           break;
         }
 
+        switch (res_stations[i].op) {
+        case InstType::Add:
+          printf(" ADD");
+          break;
+        case InstType::Sub:
+          printf(" SUB");
+          break;
+        case InstType::Mul:
+          printf(" MUL");
+          break;
+        case InstType::Div:
+          printf(" DIV");
+          break;
+        case InstType::Load:
+          printf(" LOAD");
+          break;
+        case InstType::Jump:
+          printf(" JUMP");
+          break;
+        default:
+          assert(false);
+          break;
+        }
+
         if (res_stations[i].ready_1) {
           printf(" vj=%08x", res_stations[i].value_1);
         } else {
@@ -407,7 +433,33 @@ int main(int argc, char *argv[]) {
           break;
         }
 
-        printf(" rd=%02d", exec_units[i].rd);
+        switch (exec_units[i].op) {
+        case InstType::Add:
+          printf(" ADD");
+          break;
+        case InstType::Sub:
+          printf(" SUB");
+          break;
+        case InstType::Mul:
+          printf(" MUL");
+          break;
+        case InstType::Div:
+          printf(" DIV");
+          break;
+        case InstType::Load:
+          printf(" LOAD");
+          break;
+        case InstType::Jump:
+          printf(" JUMP");
+          break;
+        default:
+          assert(false);
+          break;
+        }
+
+        if (exec_units[i].wrd) {
+          printf(" rd=%02d", exec_units[i].rd);
+        }
         printf(" vj=%08x", exec_units[i].value_1);
 
         if (exec_units[i].type != ResStationType::LoadBuffer) {

@@ -1,6 +1,6 @@
 #include "parser.h"
-#include <stdio.h>
 #include <assert.h>
+#include <stdio.h>
 
 Inst parse_inst(const char *line) {
   struct Inst ret;
@@ -27,7 +27,7 @@ Inst parse_inst(const char *line) {
   } else if (line[0] == 'J') {
     // JUMP
     ret.type = InstType::Jump;
-    sscanf(line, "JUMP,%x,R%d,%x", &ret.rd, &ret.imm, &ret.offset);
+    sscanf(line, "JUMP,%x,R%d,%x", &ret.imm, &ret.rs1, &ret.offset);
   } else {
     fprintf(stderr, "Invalid instruction: %s\n", line);
     assert(false);
