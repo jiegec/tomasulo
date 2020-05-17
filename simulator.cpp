@@ -5,8 +5,8 @@
 using namespace std;
 
 int main(int argc, char *argv[]) {
-  if (argc != 3) {
-    printf("Usage: %s input_nel output_log\n", argv[0]);
+  if (argc != 4) {
+    printf("Usage: %s input_nel output_trace output_reg\n", argv[0]);
     return 1;
   }
 
@@ -16,9 +16,15 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  FILE *output_file = fopen(argv[2], "w");
-  if (output_file == NULL) {
+  FILE *output_trace = fopen(argv[2], "w");
+  if (output_trace == NULL) {
     printf("Unable to create file %s\n", argv[2]);
+    return 1;
+  }
+
+  FILE *output_reg = fopen(argv[3], "w");
+  if (output_reg == NULL) {
+    printf("Unable to create file %s\n", argv[3]);
     return 1;
   }
 
@@ -64,7 +70,11 @@ int main(int argc, char *argv[]) {
       reg[cur.rd] = reg[cur.rs1] - reg[cur.rs2];
     }
     pc += 1;
-    fprintf(output_file, "%02d: R[%02d] = %08x\n", cycle, cur.rd, reg[cur.rd]);
+    fprintf(output_trace, "%02d: R[%02d] = %08x\n", cycle, cur.rd, reg[cur.rd]);
+  }
+
+  for (int i = 0; i < 32; i++) {
+    fprintf(output_reg, "R[%02d]=%08x\n", i, reg[i]);
   }
   return 0;
 }
