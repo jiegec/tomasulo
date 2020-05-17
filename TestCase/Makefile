@@ -1,9 +1,15 @@
 TOMASULO := ../build/tomasulo
 SIMULATOR := ../build/simulator
+PREFIX := 
 
 all: $(patsubst %.nel,%.log,$(wildcard *.nel))
 
 diff: $(patsubst %.nel,%.diff,$(wildcard *.nel))
+
+log: $(patsubst %.nel,../Log/$(PREFIX)_%.log,$(wildcard *.nel))
+
+../Log/$(PREFIX)_%.log: %.log
+	cp $^ $@
 
 %.log: %.nel $(TOMASULO)
 	$(TOMASULO) $< $(patsubst %.nel,%.log,$<)
